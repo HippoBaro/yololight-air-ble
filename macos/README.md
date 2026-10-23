@@ -1,8 +1,9 @@
 # YoloLight Air menu-bar app
 
 A native macOS menu-bar app with standard SwiftUI controls and CoreBluetooth.
-AppKit hosts the menu-bar item and fixed popover; the panel uses SwiftUI throughout,
-including a system switch (`Toggle` with `.switch` style) and `Slider` controls.
+AppKit hosts the menu-bar item, its context menu, and the fixed popover. The panel
+uses SwiftUI throughout, including a system switch (`Toggle` with `.switch` style)
+and `Slider` controls.
 There are no custom control subclasses or `NSViewRepresentable` control wrappers.
 It lists nearby advertising YoloLights alongside lights already connected to
 macOS, with independent controls for each. No Python runtime, camera, saved-device
@@ -67,6 +68,29 @@ independent state and command queues.
 Click outside the panel or press **Escape** to dismiss it. **⌘Q** quits while
 the app is active; Quit is also available in its standard application menu.
 There is no Dock icon or separate control window.
+
+### Right-click menu and login startup
+
+Right-click (or Control-click) the menu-bar lightbulb for a standard macOS menu:
+
+- **Open at Startup:** toggles automatic launch when you log in. A checkmark is
+  shown only when macOS reports the login item is enabled.
+- **Quit:** terminates the app and closes its local Bluetooth sessions. Quitting
+  does not disable an enabled login item, so it can still start at your next login.
+
+Ordinary left-click still opens the light controls. Opening the context menu
+closes the light popover and does not change the startup setting.
+
+Startup uses Apple's `SMAppService.mainApp` API, with no helper app, LaunchAgent
+plist, or separate saved preference. It is opt-in: launching the app never
+registers it automatically. Each menu opening reads the current system status,
+including changes made in System Settings. If approval is required, choosing the
+item opens the system Login Items settings; it remains unchecked until approved.
+Other failures show a native error alert rather than claiming the setting worked.
+
+For reliable login launches, enable the option from the copy you keep in
+Applications, rather than a temporary build location. Login startup opens only
+the menu-bar app, not the controls, and does not automatically connect to lights.
 
 ## Discovery and on-demand connection
 
@@ -155,8 +179,10 @@ outputs are ignored by Git; the app may be moved to `~/Applications` afterward.
 This local-build bundle is **not notarized or Developer ID signed**. The
 [one-command release workflow](RELEASING.md) uses the same free ad-hoc signing by
 default, and can publish the archive and Homebrew cask with
-`python3 macos/release.py --publish`. No paid Apple account is required; Developer
-ID signing/notarization remains optional. Do not disable Gatekeeper or Bluetooth
+`python3 macos/release.py 0.1.1 --publish` (replace `0.1.1` with the next version).
+The script updates the app version, increments the build number, and commits only
+that metadata before packaging. No paid Apple account is required; Developer ID
+signing/notarization remains optional. Do not disable Gatekeeper or Bluetooth
 privacy protections.
 
 `build-app.sh` also accepts an optional output `.app` path. The release tool uses
@@ -208,7 +234,13 @@ independent lights, cancellation, failures without automatic retries, and slider
 release/debounce behavior. Presentation tests distinguish unread, stale, proposed,
 in-flight, and verified values, including unknown power-switch state,
 accessibility descriptions, unique short device labels, and binding updates for
-rejected busy edits. They do not contact hardware or personal preferences.
+rejected busy edits. Context-menu tests use fake login items to check enable,
+disable, system approval, failure handling, checkmarks, and Quit routing. They do
+not contact hardware, register login items, or change personal preferences.
+
+Live UI checks confirmed right-click/Control-click menus, preserved left-click
+controls, and termination through Quit. Actual launch after login is not claimed
+as tested; validation leaves the user's startup preference unchanged.
 
 Live single-light validation confirmed advertisement discovery with zero local
 control sessions, enabled controls before connecting, and successful connection
@@ -237,6 +269,8 @@ dialog, setup window, or animation demands attention.
 - `Sources/YoloLightMenu/LightPresentation.swift`: state-validity labels, hints, and accessibility context.
 - `Sources/YoloLightMenu/ControlPanel.swift`: standard SwiftUI switches, sliders, labels, and layout.
 - `Sources/YoloLightMenu/App.swift`: application lifecycle and system menu-bar integration.
+- `Sources/YoloLightMenu/StatusMenu.swift`: native right-click menu, startup checkmark, and Quit.
+- `Sources/YoloLightMenu/LoginItemService.swift`: system-managed launch at login through ServiceManagement.
 - `Sources/YoloLightMenu/LightPopover.swift`, `PanelLayout.swift`: fixed-per-presentation window and row geometry.
 - `Tests/`: offline protocol, discovery, and multi-light tests.
 - `Support/Info.plist`: menu-bar-only metadata and Bluetooth privacy description.

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Build, package, and optionally publish YoloLight Air and its Homebrew cask.
 
-Free ad-hoc signing is the default. --publish explicitly authorizes GitHub
-publication, tag/source pushes, and a commit/push of ONLY the generated cask.
-Requires a clean, committed checkout; never commits arbitrary source changes.
+Free ad-hoc signing is the default. An optional VERSION updates the app version,
+increments the build number, and commits ONLY Info.plist locally when needed.
+--publish authorizes GitHub publication, tag/source pushes, and a cask-only
+commit/push. Requires reviewed, committed source; never commits arbitrary edits.
 """
 
 import argparse
@@ -27,6 +28,7 @@ if sys.version_info < (3, 11):
 APP_NAME = "YoloLight Air.app"
 CASK_NAME = "yololight-air.rb"
 CASK_PATH = f"Casks/{CASK_NAME}"
+METADATA_PATH = "macos/Support/Info.plist"
 REPOSITORY = "HippoBaro/yololight-air-ble"
 BRANCH = "main"
 VERSION_PATTERN = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
@@ -61,8 +63,16 @@ def digest(path: Path) -> str:
 
 
 def read_metadata(path: Path) -> dict:
-    with path.open("rb") as source:
-        metadata = plistlib.load(source)
+    return parse_metadata(path.read_bytes())
+
+
+def git_metadata_bytes(root: Path, tree: str) -> bytes:
+    # Unlike git(), keep the trailing newline for exact generated-file checks.
+    return command("git", "-C", root, "show", f"{tree}:{METADATA_PATH}", capture=True).encode()
+
+
+def parse_metadata(data: bytes) -> dict:
+    metadata = plistlib.loads(data)
     if not isinstance(metadata, dict):
         raise ValueError("Info.plist must contain a dictionary.")
     version = metadata.get("CFBundleShortVersionString", "")
@@ -107,12 +117,17 @@ def ensure_new_version(cask: Path, version: str) -> None:
         raise ValueError("Increase the app version before replacing an existing release cask.")
 
 
-def check_checkout(root: Path, source: str | None = None, cask_text: str | None = None) -> str:
+def checkout_head(root: Path) -> str:
     if Path(git(root, "rev-parse", "--show-toplevel")).resolve() != root.resolve():
         raise ValueError("Run from the app's own Git checkout.")
     head = git(root, "rev-parse", "HEAD")
     if not re.fullmatch(r"[0-9a-f]{40}", head):
         raise ValueError("A committed source revision is required.")
+    return head
+
+
+def check_checkout(root: Path, source: str | None = None, cask_text: str | None = None) -> str:
+    head = checkout_head(root)
     for line in git(root, "status", "--porcelain", "--untracked-files=all").splitlines():
         if cask_text is None or line[3:] != CASK_PATH:
             raise ValueError("Review and commit source changes first; the release requires a clean checkout.")
@@ -129,6 +144,86 @@ def check_checkout(root: Path, source: str | None = None, cask_text: str | None 
 def artifact_paths(root: Path, version: str) -> tuple[Path, Path, Path]:
     archive = root / "dist" / f"YoloLight-Air-{version}-arm64.zip"
     return archive, archive.with_suffix(".zip.sha256"), archive.with_suffix(".release.json")
+
+
+def version_argument(value: str) -> str:
+    if not re.fullmatch(VERSION_PATTERN, value):
+        raise argparse.ArgumentTypeError("Use major.minor.patch, such as 0.1.1, without a v prefix or prerelease suffix.")
+    return value
+
+
+def write_metadata(path: Path, metadata: dict) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".Info.plist-", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            plistlib.dump(metadata, stream, sort_keys=False)
+        temporary.chmod(path.stat().st_mode & 0o777)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def set_release_version(root: Path, version: str) -> bool:
+    """Commit only the requested version/build bump; retry an interrupted bump safely."""
+    if not re.fullmatch(VERSION_PATTERN, version):
+        raise ValueError("Version must be numeric major.minor.patch, such as 0.1.1.")
+    path = root / METADATA_PATH
+    current = read_metadata(path)
+    head = checkout_head(root)
+    baseline_bytes = git_metadata_bytes(root, "HEAD")
+    baseline = parse_metadata(baseline_bytes)
+    previous = baseline["CFBundleShortVersionString"]
+    requested_parts = tuple(map(int, version.split(".")))
+    previous_parts = tuple(map(int, previous.split(".")))
+    if requested_parts < previous_parts:
+        raise ValueError(f"Version {version} is older than the committed app version {previous}.")
+    if requested_parts == previous_parts:
+        if current != baseline:
+            raise ValueError("Info.plist has uncommitted changes; review and commit them before releasing.")
+        return False  # Includes retries: never increment an already-committed version twice.
+    if git(root, "branch", "--show-current") != BRANCH:
+        raise ValueError(f"Automatic version updates require branch {BRANCH}.")
+    ensure_new_version(root / CASK_PATH, version)
+    if any(path.exists() for path in artifact_paths(root, version)):
+        raise ValueError("Artifacts already exist for the requested version; do not replace them.")
+    if git(root, "tag", "--list", f"v{version}"):
+        raise ValueError("A local tag already exists for the requested version; use a new version.")
+    updated = {**baseline, "CFBundleShortVersionString": version,
+               "CFBundleVersion": str(int(baseline["CFBundleVersion"]) + 1)}
+    updated_bytes = plistlib.dumps(updated, sort_keys=False)
+
+    def check_pending_bump() -> None:
+        if checkout_head(root) != head:
+            raise ValueError("HEAD changed during the version update; review the checkout before retrying.")
+        status = git(root, "status", "--porcelain", "--untracked-files=all").splitlines()
+        if any(line[3:] != METADATA_PATH for line in status):
+            raise ValueError("Review and commit source changes first; version updates require a clean checkout.")
+        working = path.read_bytes()
+        # Compare file content, not just parsed values: plist parsing discards
+        # comments, which could otherwise be committed as part of a pending bump.
+        if working not in (baseline_bytes, updated_bytes) or (status and working != updated_bytes):
+            raise ValueError("Info.plist contains changes beyond the requested version/build update.")
+        if git_metadata_bytes(root, "") not in (baseline_bytes, updated_bytes):
+            raise ValueError("Staged Info.plist contains unrelated changes; refusing to replace them.")
+        if (git(root, "diff", "--summary", head, "--", METADATA_PATH)
+                or git(root, "diff", "--cached", "--summary", head, "--", METADATA_PATH)):
+            raise ValueError("Info.plist has unrelated file mode changes; review them before releasing.")
+
+    check_pending_bump()
+    if current != updated:
+        write_metadata(path, updated)
+    check_pending_bump()
+    git(root, "add", "--", METADATA_PATH)
+    git(root, "commit", "--only", "-m", f"Bump macOS app to {version}", "--", METADATA_PATH)
+    check_checkout(root)
+    if (path.read_bytes() != updated_bytes
+            or git_metadata_bytes(root, "HEAD") != updated_bytes
+            or git(root, "diff", "--name-only", head, "HEAD") != METADATA_PATH
+            or git(root, "diff", "--summary", head, "HEAD", "--", METADATA_PATH)):
+        raise ValueError("The version commit changed unexpected content; review it before releasing.")
+    print(f"Committed app version {version}, build {updated['CFBundleVersion']} (Info.plist only).")
+    return True
 
 
 def load_prepared(root: Path, metadata: dict, mode: str | None = None) -> dict:
@@ -160,7 +255,7 @@ def run_tests(root: Path) -> None:
             "-Xswiftc", "-plugin-path", "-Xswiftc", plugins)
 
 
-def prepare_release(root: Path, identity: str | None = None, notary_profile: str | None = None) -> Path:
+def validate_configuration(identity: str | None, notary_profile: str | None) -> bool:
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise ValueError("Release packaging currently requires an Apple Silicon Mac (not Rosetta).")
     notarized = identity is not None or notary_profile is not None
@@ -169,8 +264,13 @@ def prepare_release(root: Path, identity: str | None = None, notary_profile: str
             raise ValueError("Use a Developer ID Application signing identity, not ad-hoc signing.")
         if not notary_profile or not notary_profile.strip():
             raise ValueError("A notarytool keychain profile is required.")
+    return notarized
+
+
+def prepare_release(root: Path, identity: str | None = None, notary_profile: str | None = None) -> Path:
+    notarized = validate_configuration(identity, notary_profile)
     mode = "notarized" if notarized else "ad-hoc"
-    metadata = read_metadata(root / "macos/Support/Info.plist")
+    metadata = read_metadata(root / METADATA_PATH)
     version = metadata["CFBundleShortVersionString"]
     cask = root / CASK_PATH
     template = (root / "macos/Support/yololight-air.rb.in").read_text()
@@ -268,7 +368,7 @@ def verify_download(tag: str, expected: Path, checksum: str) -> None:
 
 
 def publish_release(root: Path) -> None:
-    metadata = read_metadata(root / "macos/Support/Info.plist")
+    metadata = read_metadata(root / METADATA_PATH)
     state = load_prepared(root, metadata)
     version, source = state["version"], state["source_commit"]
     archive, checksum_file, _ = artifact_paths(root, version)
@@ -366,19 +466,24 @@ def publish_release(root: Path) -> None:
     print(f"Homebrew cask committed and pushed to {BRANCH}.")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("version", nargs="?", type=version_argument, metavar="VERSION",
+                        help="Release version, e.g. 0.1.1; commits an Info.plist-only version/build bump if newer")
     parser.add_argument("--publish", action="store_true", help="Publish to GitHub, push the tag/source, and commit/push the cask")
     parser.add_argument("--identity", help="Optional Developer ID Application identity (requires --notary-profile)")
     parser.add_argument("--notary-profile", help="Optional notarytool profile (requires --identity)")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     root = Path(__file__).resolve().parent.parent
     try:
+        validate_configuration(args.identity, args.notary_profile)
+        if args.version is not None:
+            set_release_version(root, args.version)
         prepare_release(root, args.identity, args.notary_profile)
         if args.publish:
             publish_release(root)
         else:
-            print("Nothing was published or committed. Run again with --publish to publish these same artifacts.")
+            print("Nothing was published. Run again with --publish to publish these same artifacts.")
     except (OSError, ValueError, plistlib.InvalidFileException, subprocess.CalledProcessError) as error:
         detail = error.stderr.strip() if isinstance(error, subprocess.CalledProcessError) and error.stderr else str(error)
         parser.exit(1, f"Release failed: {detail}\nExisting local/remote artifacts were not overwritten. Fix the issue and rerun to resume.\n")

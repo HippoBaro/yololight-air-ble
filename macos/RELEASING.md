@@ -1,14 +1,17 @@
 # One-command macOS releases
 
-From a reviewed, committed checkout on `main`:
+From a reviewed, committed checkout on `main`, supply the next version:
 
 ```sh
-python3 macos/release.py --publish
+python3 macos/release.py 0.1.1 --publish
 ```
 
-This runs tests, builds the app, packages it, generates the checksum and Homebrew
-cask, tags the exact source revision, publishes a GitHub Release, and commits and
-pushes **only the generated cask** after verifying the uploaded assets.
+This updates the app version, increments its build number, and creates an
+**Info.plist-only local commit**. It then runs tests, builds the app, packages it,
+generates the checksum and Homebrew cask, tags the exact source revision,
+publishes a GitHub Release, and commits and pushes **only the generated cask**
+after verifying the uploaded assets. Retrying the same version does not bump it
+or create another version commit.
 
 **Free ad-hoc signing is the default. No Apple membership, certificate, or
 notarization credentials are needed.** The resulting app is not notarized.
@@ -39,34 +42,45 @@ Before the first run, review and commit the app, tooling, documentation, and
 staged. This avoids publishing arbitrary work and ensures that the release tag
 contains the source actually built. Source changes made during a run also stop it.
 
-Set the version in `macos/Support/Info.plist` before committing:
+Pass the desired numeric `major.minor.patch` version as a positional argument
+(no `v` prefix, leading zeroes, or prerelease suffix). For a newer version, the
+script changes only these fields in `macos/Support/Info.plist`:
 
-- `CFBundleShortVersionString`: numeric `major.minor.patch`, initially `0.1.0`.
-- `CFBundleVersion`: positive integer build number, initially `1`.
+- `CFBundleShortVersionString`: the requested version, e.g. `0.1.1`.
+- `CFBundleVersion`: the previous committed build number plus one, e.g. `1` → `2`.
 
-For each subsequent release, increase both and commit your reviewed changes.
-The script derives filenames and tag `v<version>` from this metadata. It does not
-choose a version or commit arbitrary source changes on your behalf.
+**Supplying a newer version authorizes a local Info.plist-only commit, even
+without `--publish`.** This keeps the release tag consistent with the app actually
+built. Other source edits, including unrelated metadata changes, are never
+staged or committed. Automatic version updates require `main` and refuse older
+versions, existing target-version artifacts/tags, or a non-increasing cask version.
+
+Omit the version argument to retain the previous workflow using already-committed
+metadata, without a version commit. An argument matching the committed version
+also leaves the build number unchanged, allowing retries and publication of
+previously prepared artifacts. Filenames and tag `v<version>` use that metadata.
 
 ## Commands
 
 ### Prepare locally, without publishing
 
 ```sh
-python3 macos/release.py
+python3 macos/release.py 0.1.1
 ```
 
-Runs offline release tests and Swift tests, then builds, verifies the ad-hoc
-signature and arm64 architecture, packages the app, and generates the cask. It
-uses an isolated bundle under ignored `dist/`, leaving your running local app
-alone. It does not contact GitHub, create a tag, commit, push, or launch the app.
+Commits the version/build bump if needed, then runs offline release tests and
+Swift tests, builds, verifies the ad-hoc signature and arm64 architecture,
+packages the app, and generates the cask. It uses an isolated bundle under
+ignored `dist/`, leaving your running local app alone. It does not contact GitHub,
+create a tag, commit the cask, push, or launch the app. To prepare without any
+commits, omit the version and use metadata you have already committed.
 
-For version `0.1.0`, outputs are:
+For version `0.1.1`, outputs are:
 
 ```text
-dist/YoloLight-Air-0.1.0-arm64.zip
-dist/YoloLight-Air-0.1.0-arm64.zip.sha256
-dist/YoloLight-Air-0.1.0-arm64.release.json
+dist/YoloLight-Air-0.1.1-arm64.zip
+dist/YoloLight-Air-0.1.1-arm64.zip.sha256
+dist/YoloLight-Air-0.1.1-arm64.release.json
 Casks/yololight-air.rb
 ```
 
@@ -78,11 +92,13 @@ checksum, never `sha256 :no_check`.
 ### Publish everything
 
 ```sh
-python3 macos/release.py --publish
+python3 macos/release.py 0.1.1 --publish
 ```
 
-This flag **explicitly authorizes public GitHub publication and Git writes**.
-It prepares artifacts if needed, or validates/reuses the existing ones, then:
+This flag **explicitly authorizes public GitHub publication, source/tag pushes,
+and the generated cask's commit/push**. The version argument separately authorizes
+the local metadata-only commit described above. It prepares artifacts if needed,
+or validates/reuses the existing ones, then:
 
 1. Checks authentication, repository, branch, and local/remote tag targets. A
    behind/diverged branch or a tag pointing to different source is rejected.
@@ -108,8 +124,15 @@ to assess the actual Gatekeeper and Bluetooth-permission experience.
 Fix the reported error, then run **the same command again**:
 
 ```sh
-python3 macos/release.py --publish
+python3 macos/release.py 0.1.1 --publish
 ```
+
+A committed version/build bump is retained if a later test, build, or publication
+step fails. Retrying the same version does not increment the build number again.
+If the metadata commit itself failed, fix the Git error and retry; the script
+accepts only its exact generated pending metadata, never other uncommitted edits.
+Additional XML comments, formatting changes, or file-mode changes are rejected
+and left untouched; review and commit those separately before retrying.
 
 The script revalidates local artifacts instead of rebuilding them, resumes
 missing draft uploads, verifies existing remote assets, and avoids duplicate
@@ -134,7 +157,7 @@ This is **not required** for the default workflow. If desired later, supply both
 options to sign/notarize instead of using ad-hoc signing:
 
 ```sh
-python3 macos/release.py --publish \
+python3 macos/release.py 0.1.1 --publish \
   --identity 'Developer ID Application: Your Name (TEAMID)' \
   --notary-profile yololight-air
 ```
@@ -156,7 +179,9 @@ python3 -B -m unittest discover -s macos -p 'test_release*.py'
 Tests simulate Apple services and GitHub. Separate Git tests use disposable
 repositories with synthetic content/identities, never the app's repository.
 Coverage includes signing modes, version/architecture checks, clean-checkout
-requirements, final ZIP checksums, interrupted uploads, conflicting tags,
+requirements, version-argument validation, metadata-only commits and retry-safe
+build increments, preservation of unrelated plist content/file modes, final ZIP
+checksums, interrupted uploads, conflicting tags,
 repository/branch guards, and cask-only commit/push ordering.
 
 The release command also runs the Swift tests with the toolchain's testing-plugin

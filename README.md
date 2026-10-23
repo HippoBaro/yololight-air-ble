@@ -11,7 +11,9 @@ with independent on/off, brightness, and temperature controls for each. Discover
 does not connect; the first control edit connects, reads state, applies the
 setting, and verifies it. There is no scan button, device picker, settings window,
 Dock icon, or main control window. It uses CoreBluetooth directly and does not
-require Python. See its README for building and on-demand connection behavior.
+require Python. Left-click the menu-bar icon for controls; right-click for
+**Open at Startup** (launch at login, checked when enabled) and **Quit**.
+See its README for building and on-demand connection behavior.
 
 ## macOS app through Homebrew
 
@@ -31,12 +33,15 @@ notarized by default; macOS may require explicit per-app approval on first launc
 Maintainers can build, package, publish, and update the cask in one command:
 
 ```sh
-python3 macos/release.py --publish
+python3 macos/release.py 0.1.1 --publish
 ```
 
-This requires a reviewed, committed `main` checkout and GitHub authentication,
-not a paid Apple account. See the [release tooling](macos/RELEASING.md) for setup
-and safety checks. Omit `--publish` to prepare locally without GitHub/Git writes.
+Replace `0.1.1` with the next version. This requires a reviewed, committed `main`
+checkout and GitHub authentication, not a paid Apple account. The version argument
+updates the app version, increments the build number, and commits only that
+metadata locally. Omit `--publish` to prepare without remote writes; omit the
+version too to use already-committed metadata without any commits. See the
+[release tooling](macos/RELEASING.md) for setup, retries, and safety checks.
 
 ## Requirements and installation
 

@@ -51,14 +51,17 @@ checksum or `sha256 :no_check` entry advertising an unreleased binary.
 From a clean, committed `main` checkout, one command handles the release:
 
 ```sh
-python3 macos/release.py --publish
+python3 macos/release.py 0.1.1 --publish
 ```
 
-It tests/builds the app, packages it, generates `Casks/yololight-air.rb` with the
-final ZIP's checksum, publishes the GitHub Release, verifies downloads, then
-commits/pushes only the cask to the default branch. No paid Apple account is
-required. The explicit `--publish` flag authorizes GitHub/Git writes; omit it to
-prepare locally without publishing or committing anything.
+Replace `0.1.1` with the next version. It updates and commits only the app's
+version/build metadata, tests/builds the app, packages it, generates
+`Casks/yololight-air.rb` with the final ZIP's checksum, publishes the GitHub
+Release, verifies downloads, then commits/pushes only the cask to the default
+branch. No paid Apple account is required. The explicit `--publish` flag
+authorizes remote writes and the cask commit; omit it to prepare without
+publishing. A newer version argument still creates a local metadata-only commit.
+Omit the version too to use already-committed metadata without any commits.
 
 See the [release procedure](../macos/RELEASING.md) for prerequisites, safety checks,
 retries, and optional Developer ID signing/notarization. Never overwrite a

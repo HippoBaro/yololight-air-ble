@@ -18,6 +18,7 @@ struct YoloLightMenuApp {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = LightsModel()
     private lazy var panel = LightPopover(model: model)
+    private lazy var statusMenu = StatusMenu()
     private var statusItem: NSStatusItem?
     private var subscription: AnyCancellable?
     private var keyboardMonitor: Any?
@@ -27,7 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
         item.button?.target = self
-        item.button?.action = #selector(togglePanel)
+        item.button?.action = #selector(statusItemClicked)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         item.button?.setAccessibilityLabel("YoloLight Air")
         subscription = model.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { self?.updateIcon() }
@@ -73,13 +75,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let image = NSImage(systemSymbolName: model.symbol, accessibilityDescription: "YoloLight Air")
         image?.isTemplate = true
         statusItem?.button?.image = image
-        statusItem?.button?.toolTip = "YoloLight Air — \(model.tooltip)"
-        statusItem?.button?.setAccessibilityHelp(model.tooltip)
+        let help = "\(model.tooltip) Right-click for Open at Startup and Quit."
+        statusItem?.button?.toolTip = "YoloLight Air — \(help)"
+        statusItem?.button?.setAccessibilityHelp(help)
     }
 
-    @objc private func togglePanel() {
-        guard let button = statusItem?.button else { return }
-        if panel.isShown {
+    @objc private func statusItemClicked() {
+        guard let item = statusItem, let button = item.button else { return }
+        if StatusMenu.isContextClick(NSApp.currentEvent) {
+            panel.close()
+            statusMenu.show(for: item)
+        } else if panel.isShown {
             panel.close()
         } else {
             NSApp.activate(ignoringOtherApps: true)
