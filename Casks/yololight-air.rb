@@ -1,6 +1,6 @@
 cask "yololight-air" do
-  version "0.1.0"
-  sha256 "24fad666ed01241d06b5e12afe7b97dda2b46bd93a852f8cc1144da4e4dbe4b2"
+  version "0.1.1"
+  sha256 "ae284d2a8affee42c72e962b65925e3cdb17ca0a8b2368ff343c44c11646cd19"
 
   url "https://github.com/HippoBaro/yololight-air-ble/releases/download/v#{version}/YoloLight-Air-#{version}-arm64.zip"
   name "YoloLight Air"
