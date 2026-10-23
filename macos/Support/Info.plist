@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>YoloLightMenu</string>
+    <key>CFBundleIdentifier</key>
+    <string>dev.hippobaro.YoloLightAir</string>
+    <key>CFBundleName</key>
+    <string>YoloLight Air</string>
+    <key>CFBundleDisplayName</key>
+    <string>YoloLight Air</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>YoloLight Air uses Bluetooth to discover nearby lights, then connects when you adjust their power, brightness, or color temperature.</string>
+</dict>
+</plist>

@@ -5,6 +5,39 @@ The controller supports light discovery, status queries, brightness, color
 temperature, and power, and verifies every setting change by querying the light
 afterward.
 
+A native **macOS menu-bar app** is also available in [`macos/`](macos/README.md).
+It automatically discovers nearby advertising and already-connected YoloLights,
+with independent on/off, brightness, and temperature controls for each. Discovery
+does not connect; the first control edit connects, reads state, applies the
+setting, and verifies it. There is no scan button, device picker, settings window,
+Dock icon, or main control window. It uses CoreBluetooth directly and does not
+require Python. See its README for building and on-demand connection behavior.
+
+## macOS app through Homebrew
+
+This repository also hosts the app's [Homebrew tap](Casks/README.md). Once the
+first release and generated cask are published, install it with:
+
+```sh
+brew tap HippoBaro/yololight-air-ble \
+  https://github.com/HippoBaro/yololight-air-ble.git
+brew install --cask HippoBaro/yololight-air-ble/yololight-air
+```
+
+The cask requires Apple Silicon and macOS 14 or newer. It downloads the prebuilt
+app, with no Swift or Python dependency. Until that first release is available,
+use the [source build](macos/README.md#build). Releases are ad-hoc signed and not
+notarized by default; macOS may require explicit per-app approval on first launch.
+Maintainers can build, package, publish, and update the cask in one command:
+
+```sh
+python3 macos/release.py --publish
+```
+
+This requires a reviewed, committed `main` checkout and GitHub authentication,
+not a paid Apple account. See the [release tooling](macos/RELEASING.md) for setup
+and safety checks. Omit `--publish` to prepare locally without GitHub/Git writes.
+
 ## Requirements and installation
 
 - Python 3.11 or newer.
@@ -242,8 +275,14 @@ FF CC 11 E4 02 00 00 00 00 01 09 A5 02 FF FF 0A 8C 19 64 84
 
 An unsolicited A4 device-type announcement can arrive when notifications are
 enabled. Its checksum/payload layout is nonstandard; the vendor parser
-special-cases it. The controller ignores it rather than weakening response
-validation. No response or handshake to this announcement was needed.
+special-cases it. The Python controller ignores it rather than weakening response
+validation. The native app normally learns the packet identity from advertisements;
+for an unfamiliar system-connected light that is no longer advertising, it can
+recognize the captured Air announcement envelope after a user initiates control.
+This provides a candidate identity only: ordinary status replies must validate
+before any setting is sent. The announcement is never accepted as a setting
+acknowledgement. No response or handshake to this announcement was needed for the
+Python controller.
 
 ## Protocol provenance
 
@@ -274,3 +313,6 @@ application source, packet logs, or third-party repositories are distributed her
 - `test_yololight.py`: offline tests.
 - `README.md`: setup, usage, validation scope, and protocol documentation.
 - `.gitignore`: excludes local environments and generated files.
+- `LICENSE`: BSD 3-Clause license.
+- `macos/`: native menu-bar application, build/release tooling, and offline tests.
+- `Casks/`: same-repository Homebrew tap; the cask is generated from the final release archive.
